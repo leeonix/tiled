@@ -24,7 +24,7 @@
 #include "changeimagelayerposition.h"
 #include "changeimagelayerproperties.h"
 #include "changemapobject.h"
-#include "changemapproperties.h"
+#include "changemapproperty.h"
 #include "changeobjectgroupproperties.h"
 #include "changeproperties.h"
 #include "flipmapobjects.h"
@@ -69,11 +69,27 @@ PropertyBrowser::PropertyBrowser(QWidget *parent)
     setRootIsDecorated(false);
     setPropertiesWithoutValueMarked(true);
 
+    mStaggerAxisNames.append(tr("X"));
+    mStaggerAxisNames.append(tr("Y"));
+
+    mStaggerIndexNames.append(tr("Odd"));
+    mStaggerIndexNames.append(tr("Even"));
+
+    mOrientationNames.append(QCoreApplication::translate("Tiled::Internal::NewMapDialog", "Orthogonal"));
+    mOrientationNames.append(QCoreApplication::translate("Tiled::Internal::NewMapDialog", "Isometric"));
+    mOrientationNames.append(QCoreApplication::translate("Tiled::Internal::NewMapDialog", "Isometric (Staggered)"));
+    mOrientationNames.append(QCoreApplication::translate("Tiled::Internal::NewMapDialog", "Hexagonal (Staggered)"));
+
     mLayerFormatNames.append(QCoreApplication::translate("PreferencesDialog", "XML"));
     mLayerFormatNames.append(QCoreApplication::translate("PreferencesDialog", "Base64 (uncompressed)"));
     mLayerFormatNames.append(QCoreApplication::translate("PreferencesDialog", "Base64 (gzip compressed)"));
     mLayerFormatNames.append(QCoreApplication::translate("PreferencesDialog", "Base64 (zlib compressed)"));
     mLayerFormatNames.append(QCoreApplication::translate("PreferencesDialog", "CSV"));
+
+    mRenderOrderNames.append(QCoreApplication::translate("PreferencesDialog", "Right Down"));
+    mRenderOrderNames.append(QCoreApplication::translate("PreferencesDialog", "Right Up"));
+    mRenderOrderNames.append(QCoreApplication::translate("PreferencesDialog", "Left Down"));
+    mRenderOrderNames.append(QCoreApplication::translate("PreferencesDialog", "Left Up"));
 
     mFlippingFlagNames.append(tr("Horizontal"));
     mFlippingFlagNames.append(tr("Vertical"));
@@ -309,13 +325,50 @@ void PropertyBrowser::addMapProperties()
 {
     QtProperty *groupProperty = mGroupManager->addProperty(tr("Map"));
 
+    createProperty(SizeProperty, QVariant::Size, tr("Size"), groupProperty)->setEnabled(false);
+    createProperty(TileSizeProperty, QVariant::Size, tr("Tile Size"), groupProperty);
+
+    QtVariantProperty *orientationProperty =
+            createProperty(OrientationProperty,
+                           QtVariantPropertyManager::enumTypeId(),
+                           tr("Orientation"),
+                           groupProperty);
+
+    orientationProperty->setAttribute(QLatin1String("enumNames"), mOrientationNames);
+
+    createProperty(HexSideLengthProperty, QVariant::Int, tr("Tile Side Length (Hex)"), groupProperty);
+
+    QtVariantProperty *staggerAxisProperty =
+            createProperty(StaggerAxisProperty,
+                           QtVariantPropertyManager::enumTypeId(),
+                           tr("Stagger Axis"),
+                           groupProperty);
+
+    staggerAxisProperty->setAttribute(QLatin1String("enumNames"), mStaggerAxisNames);
+
+    QtVariantProperty *staggerIndexProperty =
+            createProperty(StaggerIndexProperty,
+                           QtVariantPropertyManager::enumTypeId(),
+                           tr("Stagger Index"),
+                           groupProperty);
+
+    staggerIndexProperty->setAttribute(QLatin1String("enumNames"), mStaggerIndexNames);
+
     QtVariantProperty *layerFormatProperty =
             createProperty(LayerFormatProperty,
                            QtVariantPropertyManager::enumTypeId(),
-                           tr("Layer Format"),
+                           tr("Tile Layer Format"),
                            groupProperty);
 
     layerFormatProperty->setAttribute(QLatin1String("enumNames"), mLayerFormatNames);
+
+    QtVariantProperty *renderOrderProperty =
+            createProperty(RenderOrderProperty,
+                           QtVariantPropertyManager::enumTypeId(),
+                           tr("Tile Render Order"),
+                           groupProperty);
+
+    renderOrderProperty->setAttribute(QLatin1String("enumNames"), mRenderOrderNames);
 
     createProperty(ColorProperty, QVariant::Color, tr("Background Color"), groupProperty);
     addProperty(groupProperty);
@@ -332,6 +385,7 @@ static QStringList objectTypeNames()
 void PropertyBrowser::addMapObjectProperties()
 {
     QtProperty *groupProperty = mGroupManager->addProperty(tr("Object"));
+    createProperty(IdProperty, QVariant::Int, tr("ID"), groupProperty)->setEnabled(false);
     createProperty(NameProperty, QVariant::String, tr("Name"), groupProperty);
 
     QtVariantProperty *typeProperty =
@@ -432,21 +486,55 @@ void PropertyBrowser::addTerrainProperties()
 
 void PropertyBrowser::applyMapValue(PropertyId id, const QVariant &val)
 {
-    Map *map = static_cast<Map*>(mObject);
     QUndoCommand *command = 0;
 
     switch (id) {
+    case TileSizeProperty: {
+        const Map *map = static_cast<Map*>(mObject);
+        const QSize tileSize = val.toSize();
+        if (tileSize.width() != map->tileWidth()) {
+            command = new ChangeMapProperty(mMapDocument,
+                                            ChangeMapProperty::TileWidth,
+                                            tileSize.width());
+        } else if (tileSize.height() != map->tileHeight()) {
+            command = new ChangeMapProperty(mMapDocument,
+                                            ChangeMapProperty::TileHeight,
+                                            tileSize.height());
+        }
+        break;
+    }
+    case OrientationProperty: {
+        Map::Orientation orientation = static_cast<Map::Orientation>(val.toInt() + 1);
+        command = new ChangeMapProperty(mMapDocument, orientation);
+        break;
+    }
+    case HexSideLengthProperty: {
+        command = new ChangeMapProperty(mMapDocument, ChangeMapProperty::HexSideLength,
+                                        val.toInt());
+        break;
+    }
+    case StaggerAxisProperty: {
+        Map::StaggerAxis staggerAxis = static_cast<Map::StaggerAxis>(val.toInt());
+        command = new ChangeMapProperty(mMapDocument, staggerAxis);
+        break;
+    }
+    case StaggerIndexProperty: {
+        Map::StaggerIndex staggerIndex = static_cast<Map::StaggerIndex>(val.toInt());
+        command = new ChangeMapProperty(mMapDocument, staggerIndex);
+        break;
+    }
     case LayerFormatProperty: {
         Map::LayerDataFormat format = static_cast<Map::LayerDataFormat>(val.toInt());
-        command = new ChangeMapProperties(mMapDocument,
-                                          map->backgroundColor(),
-                                          format);
+        command = new ChangeMapProperty(mMapDocument, format);
+        break;
+    }
+    case RenderOrderProperty: {
+        Map::RenderOrder renderOrder = static_cast<Map::RenderOrder>(val.toInt());
+        command = new ChangeMapProperty(mMapDocument, renderOrder);
         break;
     }
     case ColorProperty:
-        command = new ChangeMapProperties(mMapDocument,
-                                          val.value<QColor>(),
-                                          map->layerDataFormat());
+        command = new ChangeMapProperty(mMapDocument, val.value<QColor>());
         break;
     default:
         break;
@@ -701,7 +789,14 @@ void PropertyBrowser::updateProperties()
     switch (mObject->typeId()) {
     case Object::MapType: {
         const Map *map = static_cast<const Map*>(mObject);
+        mIdToProperty[SizeProperty]->setValue(map->size());
+        mIdToProperty[TileSizeProperty]->setValue(map->tileSize());
+        mIdToProperty[OrientationProperty]->setValue(map->orientation() - 1);
+        mIdToProperty[HexSideLengthProperty]->setValue(map->hexSideLength());
+        mIdToProperty[StaggerAxisProperty]->setValue(map->staggerAxis());
+        mIdToProperty[StaggerIndexProperty]->setValue(map->staggerIndex());
         mIdToProperty[LayerFormatProperty]->setValue(map->layerDataFormat());
+        mIdToProperty[RenderOrderProperty]->setValue(map->renderOrder());
         QColor backgroundColor = map->backgroundColor();
         if (!backgroundColor.isValid())
             backgroundColor = Qt::darkGray;
@@ -710,6 +805,7 @@ void PropertyBrowser::updateProperties()
     }
     case Object::MapObjectType: {
         const MapObject *mapObject = static_cast<const MapObject*>(mObject);
+        mIdToProperty[IdProperty]->setValue(mapObject->id());
         mIdToProperty[NameProperty]->setValue(mapObject->name());
         mIdToProperty[TypeProperty]->setValue(mapObject->type());
         mIdToProperty[VisibleProperty]->setValue(mapObject->isVisible());

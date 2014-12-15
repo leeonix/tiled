@@ -104,6 +104,12 @@ private:
         VisibleProperty,
         OpacityProperty,
         ColorProperty,
+        TileSizeProperty,
+        OrientationProperty,
+        HexSideLengthProperty,
+        StaggerAxisProperty,
+        StaggerIndexProperty,
+        RenderOrderProperty,
         LayerFormatProperty,
         ImageSourceProperty,
         FlippingProperty,
@@ -153,7 +159,11 @@ private:
     QHash<PropertyId, QtVariantProperty *> mIdToProperty;
     QHash<QString, QtVariantProperty *> mNameToProperty;
 
+    QStringList mStaggerAxisNames;
+    QStringList mStaggerIndexNames;
+    QStringList mOrientationNames;
     QStringList mLayerFormatNames;
+    QStringList mRenderOrderNames;
     QStringList mFlippingFlagNames;
     QStringList mDrawOrderNames;
 };
